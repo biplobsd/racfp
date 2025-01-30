@@ -1,4 +1,3 @@
-import { jest } from '@jest/globals';
 import { removeComments } from './index.js';
 import fs from 'fs-extra';
 import path from 'path';
@@ -224,7 +223,6 @@ and /* comment-like */ content""");
   Widget build(BuildContext context) {
     return Column(
       children: [
-        
         Container(
           padding: EdgeInsets.all(16),
           child: Text(
@@ -253,6 +251,321 @@ and /* comment-like */ content""");
     const results = await removeComments(tmpDir.path);
     expect(results.length).toBe(1);
     expect(results[0].success).toBe(true);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle empty files', async () => {
+    const content = '';
+    const expected = '';
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle files with only comments', async () => {
+    const content = `// Single line comment
+/* Multi-line
+   comment */
+/// Documentation comment`;
+    const expected = '';
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle unclosed multi-line comments', async () => {
+    const content = `void main() {
+  /* Unclosed comment
+  print('This should be removed');
+}`;
+    const expected = `void main() {
+  print('This should be removed');
+}`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle escaped quotes in strings', async () => {
+    const content = `void main() {
+  print('String with \\'quoted\\' content // not a comment');
+  print("String with \\"quoted\\" content /* not a comment */");
+}`;
+    const expected = `void main() {
+  print('String with \\'quoted\\' content // not a comment');
+  print("String with \\"quoted\\" content /* not a comment */");
+}`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments inside interpolated strings', async () => {
+    const content = `void main() {
+  print('Value: \${
+    // This comment should be removed
+    getValue() /* remove this too */
+  }');
+  print("\${
+    list // remove this
+      .map((e) => e) /* and this */
+      .toList()
+  }");
+  print('''
+    \${
+      data  // remove comment
+        .process() /* remove this comment */
+        .format()
+    }
+  ''');
+}`;
+    const expected = `void main() {
+  print('Value: \${
+    getValue()
+  }');
+  print("\${
+    list
+      .map((e) => e)
+      .toList()
+  }");
+  print('''
+    \${
+      data
+        .process()
+        .format()
+    }
+  ''');
+}`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle multiple consecutive comments', async () => {
+    const content = `void main() {
+  // First comment
+  // Second comment
+  // Third comment
+  print('Hello');
+  /* Comment 1 *//* Comment 2 *//* Comment 3 */
+  print('World');
+}`;
+    const expected = `void main() {
+  print('Hello');
+  print('World');
+}`;
+    await createTestFile(content);
+    const results = await removeComments(tmpDir.path);
+    expect(results.length).toBe(1);
+    expect(results[0].success).toBe(true);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments with special characters', async () => {
+    const content = `void main() {
+  // Comment with @#$%^&*()_+
+  /* Comment with 
+     🎉🌟✨💫 emojis */
+  /// Documentation with <html> tags
+  print('Hello');
+}`;
+    const expected = `void main() {
+  print('Hello');
+}`;
+    await createTestFile(content);
+    const results = await removeComments(tmpDir.path);
+    expect(results.length).toBe(1);
+    expect(results[0].success).toBe(true);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle mixed comment types on same line', async () => {
+    const content = `void main() {
+  /* Multi-line */ // Single-line /// Doc comment
+  print('Hello'); /* Comment */ // Another /* Nested */
+}`;
+    const expected = `void main() {
+  print('Hello');
+}`;
+    await createTestFile(content);
+    const results = await removeComments(tmpDir.path);
+    expect(results.length).toBe(1);
+    expect(results[0].success).toBe(true);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle multiple files in different subdirectories', async () => {
+    await fs.mkdir(path.join(tmpDir.path, 'lib/src'));
+    await fs.mkdir(path.join(tmpDir.path, 'lib/widgets'));
+    
+    const files = {
+      'main.dart': 'void main() { /* Main */ }',
+      'src/utils.dart': '// Utility functions\nString helper() => "test";',
+      'widgets/custom.dart': 'class Custom { /// Widget comment\n }'
+    };
+
+    for (const [file, content] of Object.entries(files)) {
+      await createTestFile(content, file);
+    }
+
+    const results = await removeComments(tmpDir.path);
+    expect(results.length).toBe(3);
+    expect(results.every(r => r.success)).toBe(true);
+  });
+
+  test('should handle files with mixed line endings', async () => {
+    const content = '// Comment 1\r\n/* Comment 2 */\n/// Comment 3\r/* Comment 4 */\nprint("Hello");';
+    const expected = 'print("Hello");';
+    
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments with Unicode characters', async () => {
+    const content = `void main() {
+  // コメント
+  /* मुख्य टिप्पणी */
+  /// تعليق
+  print('Hello');
+}`;
+    const expected = `void main() {
+  print('Hello');
+}`;
+    
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle large files with many comments', async () => {
+    let content = '';
+    for (let i = 0; i < 1000; i++) {
+      content += `// Comment ${i}\n/* Block ${i} */\n/// Doc ${i}\nprint(${i});\n`;
+    }
+    
+    await createTestFile(content);
+    const results = await removeComments(tmpDir.path);
+    expect(results.length).toBe(1);
+    expect(results[0].success).toBe(true);
+    
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result.split('\n').filter(line => line.includes('print(')).length).toBe(1000);
+  });
+
+  test('should handle files with read-only permissions', async () => {
+    const content = '// Comment\nprint("Hello");';
+    const filePath = await createTestFile(content);
+    await fs.chmod(filePath, 0o444);
+    
+    await expect(removeComments(tmpDir.path)).rejects.toThrow();
+  });
+
+  test('should handle deeply nested comments', async () => {
+    const content = `void main() {
+  /* Level 1
+    /* Level 2
+      /* Level 3
+        /* Level 4 */
+      Still level 3 */
+    Still level 2 */
+  Still level 1 */
+  print('Hello');
+}`;
+    const expected = `void main() {
+  print('Hello');
+}`;
+    
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments in string concatenation', async () => {
+    const content = `void main() {
+      final str = 'prefix' + /* comment */ 'suffix';
+      final multi = 'start' + // comment
+                   'middle' + /// doc
+                   'end';
+    }`;
+    const expected = `void main() {
+      final str = 'prefix' + 'suffix';
+      final multi = 'start' +
+                   'middle' +
+                   'end';
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments in method chaining', async () => {
+    const content = `void main() {
+      list
+        .map((e) => e) // transform
+        /* filter */
+        .where((e) => true)
+        /// sort
+        .toList();
+    }`;
+    const expected = `void main() {
+      list
+        .map((e) => e)
+        .where((e) => true)
+        .toList();
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments in complex string interpolation', async () => {
+    const content = `void main() {
+      print('Value: \${
+        // Comment inside interpolation
+        getValue() /* another comment */
+      }');
+      print('\${/* start */list.map((e) => e/* transform */).toList()/* end */}');
+    }`;
+    const expected = `void main() {
+      print('Value: \${
+        getValue()
+      }');
+      print('\${list.map((e) => e).toList()}');
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments in trailing commas', async () => {
+    const content = `final map = {
+      'key1': 'value1', // first
+      'key2': 'value2', /* second */
+      'key3': 'value3', /// third
+    };`;
+    const expected = `final map = {
+      'key1': 'value1',
+      'key2': 'value2',
+      'key3': 'value3',
+    };`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
     const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
     expect(result).toBe(expected);
   });

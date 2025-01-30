@@ -37,6 +37,40 @@ export async function removeComments(flutterProjectPath) {
       // Handle string literals containing comment-like content
       let stringIndex = 0;
       content = content.replace(/(r?"""[\s\S]*?"""|r?'''[\s\S]*?'''|r?'[^'\\]*(?:\\.[^'\\]*)*'|r?"[^"\\]*(?:\\.[^"\\]*)*")/g, match => {
+        if (match.includes('${')) {
+          let interpolatedContent = match;
+          const interpolationRegex = /\$\{([^}]+)\}/g;
+          
+          interpolatedContent = interpolatedContent.replace(interpolationRegex, (fullMatch, expr) => {
+            // Get the original indentation levels
+            const lines = expr.split('\n');
+            const indentLevels = lines.map(line => line.match(/^\s*/)[0]);
+            const baseIndent = indentLevels[0];
+            
+            // Clean comments from the interpolation expression
+            let cleanExpr = expr
+              .replace(/\/\/\/[^\n]*/g, '')
+              .replace(/(?<!:)\/\/[^\n]*/g, '')
+              .replace(/\/\*[\s\S]*?\*\//g, '');
+            
+            // Preserve indentation for multiline expressions
+            if (expr.includes('\n')) {
+              cleanExpr = cleanExpr.split('\n')
+                .map((line, i) => {
+                  const trimmed = line.trim();
+                  return trimmed ? indentLevels[i] + trimmed : '';
+                })
+                .filter(Boolean)
+                .join('\n');
+              return '${' + '\n' + cleanExpr + '\n' + indentLevels[indentLevels.length - 1] + '}';
+            }
+            
+            return '${' + cleanExpr.trim() + '}';
+          });
+          
+          return interpolatedContent;
+        }
+        
         preservedStrings[stringIndex] = match;
         const placeholder = `PRESERVED_STRING_${stringIndex}`;
         stringIndex++;
@@ -60,12 +94,25 @@ export async function removeComments(flutterProjectPath) {
         stack.push(startIndex);
         lastIndex = startIndex + 2;
         
+        let endIndex = content.indexOf('*/', lastIndex);
+        if (endIndex === -1) {
+          // Handle unclosed comment by removing only the comment part
+          const lines = content.slice(startIndex).split('\n');
+          const remainingLines = lines.slice(1);
+          const remainingCode = remainingLines.join('\n');
+          content = content.slice(0, startIndex).trimEnd() + '\n' + remainingCode;
+          break;
+        }
+        
         while (stack.length > 0) {
           const nextStart = content.indexOf('/*', lastIndex);
           const nextEnd = content.indexOf('*/', lastIndex);
           
           if (nextEnd === -1) {
-            // Unclosed comment, stop processing
+            // Handle unclosed nested comment
+            const lines = content.slice(stack[0]).split('\n');
+            const remainingLines = lines.slice(1);
+            content = content.slice(0, stack[0]) + '\n' + remainingLines.join('\n');
             stack = [];
             break;
           }
@@ -79,8 +126,7 @@ export async function removeComments(flutterProjectPath) {
             
             if (stack.length === 0) {
               const commentText = content.slice(start, nextEnd + 2);
-              const newlines = commentText.match(/\n/g) || [];
-              content = content.slice(0, start) + newlines.join('') + content.slice(nextEnd + 2);
+              content = content.slice(0, start).trimEnd() + content.slice(nextEnd + 2);
               lastIndex = start;
             }
           }
@@ -99,11 +145,14 @@ export async function removeComments(flutterProjectPath) {
           const originalIndent = line.match(/^(\s*)/)[0];
           const trimmedLine = line.trim();
           
-          // Keep empty lines between blocks
+          // Keep empty lines between blocks and preserve method chaining
           if (!trimmedLine) {
             const prevLine = arr[index - 1];
             const nextLine = arr[index + 1];
-            // Keep empty lines only between non-empty lines that have content
+            if ((prevLine?.trim()?.endsWith(')') || prevLine?.trim()?.endsWith('}')) && 
+                nextLine?.trim()?.startsWith('.')) {
+              return null;
+            }
             if (prevLine?.trim() && nextLine?.trim() &&
                 !prevLine.trim().endsWith('{') && 
                 !nextLine.trim().startsWith('}')) {
