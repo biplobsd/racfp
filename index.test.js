@@ -569,4 +569,243 @@ and /* comment-like */ content""");
     const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
     expect(result).toBe(expected);
   });
+
+  test('should handle nested string interpolation with comments', async () => {
+    const content = `void main() {
+      print('\${
+        'nested \${
+          // inner comment
+          getValue() /* inner block */
+        } outer \${
+          // outer comment
+          process() /* outer block */
+        }'
+      }');
+    }`;
+    const expected = `void main() {
+      print('\${
+        'nested \${
+          getValue()
+        } outer \${
+          process()
+        }'
+      }');
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle string interpolation with line breaks in comments', async () => {
+    const content = `void main() {
+      print('\${
+        /* multi-line
+           comment in
+           interpolation */
+        getValue()
+        // line break
+        .toString()
+      }');
+    }`;
+    const expected = `void main() {
+      print('\${
+        getValue()
+        .toString()
+      }');
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle mixed string types with interpolation and comments', async () => {
+    const content = `void main() {
+      print(r'''\${
+        // raw string comment
+        getData() /* in raw */
+      }''');
+      print("""\${
+        // triple quote comment
+        process() /* in triple */
+      }""");
+    }`;
+    const expected = `void main() {
+      print(r'''\${
+        getData()
+      }''');
+      print("""\${
+        process()
+      }""");
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle complex string literals with interpolation and comments', async () => {
+    const content = `void main() {
+      // Test raw multi-line string with escaped interpolation
+      print(r'''\${
+        // raw string comment
+        getData() /* in raw */
+      }''');
+      
+
+      // Test triple-quoted string with escaped interpolation
+      print("""\${
+        // triple quote comment
+        process() /* in triple */
+      }""");
+      
+
+      // Test mixed quotes with nested interpolation
+      print(r"""Value: \${
+        getData(r'\${/* nested comment */}') // comment in param
+      }""");
+      
+
+      // Test escaped interpolation in raw string
+      print(r'Value: \${/* should preserve this comment */}');
+    }`;
+    const expected = `void main() {
+      print(r'''\${
+        getData()
+      }''');
+      print("""\${
+        process()
+      }""");
+      print(r"""Value: \${
+        getData(r'\${}')
+      }""");
+      print(r'Value: \${}');
+    }`;
+    
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+  test('should handle malformed interpolation syntax', async () => {
+    const content = `void main() {
+      print('\${'); // Unclosed interpolation
+      print('\${}}'); // Extra closing brace
+      print('\${/**/}'); // Empty interpolation with comment
+      print('Value: \${
+        // Nested malformed
+        getValue('\${')
+      }');
+    }`;
+    const expected = `void main() {
+      print('\${');
+      print('\${}}');
+      print('\${}');
+      print('Value: \${
+        getValue('\${')
+      }');
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments in string literals with escaped characters', async () => {
+    const content = `void main() {
+      print('\\n // Not a comment');
+      print('\\t /* Not a comment */');
+      print('\\\\ // Not a comment');
+      print('\\r\\n // Not a comment');
+    }`;
+    const expected = `void main() {
+      print('\\n // Not a comment');
+      print('\\t /* Not a comment */');
+      print('\\\\ // Not a comment');
+      print('\\r\\n // Not a comment');
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle nested raw strings with interpolation and comments', async () => {
+    const content = `void main() {
+      print(r'''
+        \${r'''
+          \${r'''
+            // Deeply nested comment
+            getValue() /* nested */
+          '''}
+          // Middle level comment
+          process() /* middle */
+        '''}
+        // Outer level comment
+        format() /* outer */
+      ''');
+    }`;
+    const expected = `void main() {
+      print(r'''
+        \${r'''
+          \${r'''
+            getValue()
+          '''}
+          process()
+        '''}
+        format()
+      ''');
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle mixed string types with escaped characters and comments', async () => {
+    const content = `void main() {
+      print('\\r\\n\${
+        // Comment with escape
+        getValue('\\t') /* with tab */
+      }\\n');
+      print(r'\\n\${
+        // Raw string escape
+        process('\\r') /* with return */
+      }\\r');
+    }`;
+    const expected = `void main() {
+      print('\\r\\n\${
+        getValue('\\t')
+      }\\n');
+      print(r'\\n\${
+        process('\\r')
+      }\\r');
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
+
+  test('should handle comments in adjacent string interpolations', async () => {
+    const content = `void main() {
+      print('\${/* c1 */value1}\${/* c2 */value2}\${/* c3 */value3}');
+      print(r'\${// c1
+      v1}\${// c2
+      v2}\${// c3
+      v3}');
+    }`;
+    const expected = `void main() {
+      print('\${value1}\${value2}\${value3}');
+      print(r'\${
+      v1}\${
+      v2}\${
+      v3}');
+    }`;
+    await createTestFile(content);
+    await removeComments(tmpDir.path);
+    const result = await fs.readFile(path.join(tmpDir.path, 'lib', 'main.dart'), 'utf8');
+    expect(result).toBe(expected);
+  });
 });

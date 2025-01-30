@@ -39,15 +39,61 @@ export async function removeComments(flutterProjectPath) {
       content = content.replace(/(r?"""[\s\S]*?"""|r?'''[\s\S]*?'''|r?'[^'\\]*(?:\\.[^'\\]*)*'|r?"[^"\\]*(?:\\.[^"\\]*)*")/g, match => {
         if (match.includes('${')) {
           let interpolatedContent = match;
+          const isRawString = match.startsWith('r');
           const interpolationRegex = /\$\{([^}]+)\}/g;
           
+          // For raw strings, only process non-nested interpolation
+          if (isRawString) {
+            interpolatedContent = interpolatedContent.replace(interpolationRegex, (fullMatch, expr) => {
+              // If it contains nested interpolation or comments in raw string, preserve it
+              if (expr.includes('${') || expr.includes('/*') || expr.includes('//')) {
+                return fullMatch;
+              }
+              
+              // Otherwise, handle as normal but preserve indentation
+              const lines = expr.split('\n');
+              const baseIndent = lines[0].match(/^(\s*)/)[0];
+              const lastIndent = lines[lines.length - 1].match(/^(\s*)/)[0];
+              
+              let cleanExpr = expr
+                .replace(/\/\/\/[^\n]*/g, '')
+                .replace(/(?<!:)\/\/[^\n]*/g, '')
+                .replace(/\/\*[\s\S]*?\*\//g, '');
+              
+              if (expr.includes('\n')) {
+                const processedLines = cleanExpr.split('\n')
+                  .map(line => {
+                    const trimmed = line.trim();
+                    if (!trimmed) return '';
+                    return baseIndent + trimmed;
+                  })
+                  .filter(Boolean);
+                
+                return '${' + '\n' + processedLines.join('\n') + '\n' + lastIndent + '}';
+              }
+              
+              return '${' + cleanExpr.trim() + '}';
+            });
+            
+            return interpolatedContent;
+          }
+          
+          // Handle regular string interpolation as before
           interpolatedContent = interpolatedContent.replace(interpolationRegex, (fullMatch, expr) => {
             // Get the original indentation levels
             const lines = expr.split('\n');
-            const indentLevels = lines.map(line => line.match(/^\s*/)[0]);
-            const baseIndent = indentLevels[0];
+            const baseIndent = lines[0].match(/^(\s*)/)[0];
+            const lastIndent = lines[lines.length - 1].match(/^(\s*)/)[0];
             
-            // Clean comments from the interpolation expression
+            // For raw strings, preserve the comments
+            if (isRawString) {
+              if (expr.includes('\n')) {
+                return '${' + '\n' + expr + '\n' + lastIndent + '}';
+              }
+              return fullMatch;
+            }
+            
+            // Clean comments from regular string interpolation
             let cleanExpr = expr
               .replace(/\/\/\/[^\n]*/g, '')
               .replace(/(?<!:)\/\/[^\n]*/g, '')
@@ -55,14 +101,22 @@ export async function removeComments(flutterProjectPath) {
             
             // Preserve indentation for multiline expressions
             if (expr.includes('\n')) {
-              cleanExpr = cleanExpr.split('\n')
-                .map((line, i) => {
+              const processedLines = cleanExpr.split('\n')
+                .map(line => {
                   const trimmed = line.trim();
-                  return trimmed ? indentLevels[i] + trimmed : '';
+                  if (!trimmed) return '';
+                  
+                  // Find the original indentation for this line
+                  const originalLine = lines.find(l => l.trim() && l.includes(trimmed));
+                  if (originalLine) {
+                    const originalIndent = originalLine.match(/^(\s*)/)[0];
+                    return originalIndent + trimmed;
+                  }
+                  return baseIndent + trimmed;
                 })
-                .filter(Boolean)
-                .join('\n');
-              return '${' + '\n' + cleanExpr + '\n' + indentLevels[indentLevels.length - 1] + '}';
+                .filter(Boolean);
+              
+              return '${' + '\n' + processedLines.join('\n') + '\n' + lastIndent + '}';
             }
             
             return '${' + cleanExpr.trim() + '}';
