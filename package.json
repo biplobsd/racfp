@@ -1,0 +1,17 @@
+{
+  "name": "flutter-comment-remover",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js test-flutter-project",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --no-cache"
+  },
+  "dependencies": {
+    "glob": "^10.3.10",
+    "fs-extra": "^11.2.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "tmp-promise": "^3.0.3"
+  }
+}
